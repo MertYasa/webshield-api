@@ -1,0 +1,16 @@
+# Python önbellekleri
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Sanal Ortamlar (Kendi bilgisayarındaki)
+venv/
+env/
+.venv/
+
+# Çevresel Değişkenler (Şifreler vs olursa diye)
+.env
+
+# İşletim sistemi dosyaları
+.DS_Store
+Thumbs.db

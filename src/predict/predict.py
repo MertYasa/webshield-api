@@ -48,9 +48,16 @@ _model = _bundle["model"]
 _extractor = tldextract.TLDExtract(suffix_list_urls=None)
 
 def _decision_and_confidence(final_risk: float):
-    if final_risk < SAFE_TH: return "SAFE", "HIGH" if final_risk < 0.25 else "MEDIUM"
-    elif final_risk < PHISHING_TH: return "SUSPICIOUS", "LOW"
-    else: return "PHISHING", "HIGH" if final_risk > 0.85 else "MEDIUM"
+    if final_risk < 0.30:
+        return "SAFE", "HIGH" if final_risk < 0.15 else "MEDIUM"
+    elif final_risk < 0.45:
+        return "LOW RISK", "MEDIUM"
+    elif final_risk < 0.60:
+        return "SUSPICIOUS", "LOW"
+    elif final_risk < 0.75:
+        return "HIGH RISK", "MEDIUM"
+    else:
+        return "PHISHING", "HIGH" if final_risk > 0.85 else "MEDIUM"
 
 def predict_url(url: str) -> dict:
     if not isinstance(url, str) or not url.strip():
@@ -100,8 +107,8 @@ def predict_url(url: str) -> dict:
         X_all_root = np.concatenate([X_lex_root.values, X_osint.values], axis=1)
         ml_score_root = float(_model.predict_proba(X_all_root)[0, 1])
         
-        # Algoritma: %60 Kök Domain Ağır Basar + %40 Tam URL Etki Eder
-        final_ml_score = (ml_score_root * 0.60) + (ml_score_full * 0.40)
+        # Algoritma: %70 Kök Domain Ağır Basar + %30 Tam URL Etki Eder
+        final_ml_score = (ml_score_root * 0.70) + (ml_score_full * 0.30)
         reasons = ["dual_pass_ml_active"]
     else:
         # Zaten kök domain girilmiş, ikinci hesaba gerek yok

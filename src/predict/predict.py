@@ -69,13 +69,11 @@ def predict_url(url: str) -> dict:
 
     # --- 0. BEYAZ LİSTE (FAST-PASS) ---
     if root_domain in GLOBAL_WHITELIST:
-        # %95 ile %99 arası güvenli göstermesi için %1 ile %5 arası rastgele risk skoru veriyoruz
-        whitelist_risk = round(float(np.random.uniform(0.01, 0.05)), 4)
         return {
             "url": raw_url,
-            "ml_score": whitelist_risk,
-            "heuristic_score": whitelist_risk,
-            "final_risk": whitelist_risk,
+            "ml_score": 0.0,
+            "heuristic_score": 0.0,
+            "final_risk": 0.0,
             "decision": "SAFE",
             "confidence": "HIGH",
             "osint_data": {

@@ -207,8 +207,13 @@ def score_url(url: str) -> HeuristicResult:
         trust += sub
         contrib["no_port_no_ip_bonus"] = -sub
 
-    # T3: safe tld
-    if tld in COMMON_SAFE_TLDS:
+    # T3: safe tld & institutional domains
+    host_parts = host.split(".")
+    if len(host_parts) > 1 and any(p in {"edu", "gov", "mil", "bel", "k12", "int", "ac"} for p in host_parts[1:]):
+        sub = 0.15  # Ekstra güven (+ puan)
+        trust += sub
+        contrib["institutional_domain_bonus"] = -sub
+    elif tld in COMMON_SAFE_TLDS:
         sub = 0.03
         trust += sub
         contrib["common_tld_bonus"] = -sub

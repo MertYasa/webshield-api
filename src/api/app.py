@@ -9,13 +9,17 @@ import time
 from datetime import datetime, timezone
 from typing import Dict
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
 from src.predict.predict import predict_url, GLOBAL_WHITELIST, SAFE_TH, HIGH_RISK_TH
 from src.features.osint_features import extract_osint_features, get_registered_domain
-from src.api.validators import validate_url, URLValidationError
+from src.api.validators import validate_url, sanitize_url_for_logging, URLValidationError
 
 # ==================================================
 # LOGGING SETUP — no emoji, Windows-safe
@@ -35,11 +39,20 @@ MODEL_VERSION = "webshield_ultimate_v2"
 HEURISTIC_VERSION = "heuristic_engine_v1"
 
 # CORS: restrict in production via environment variable.
-# Example: ALLOWED_ORIGINS=https://my-extension-host.com
-_raw_origins = os.getenv("ALLOWED_ORIGINS", "*")
+# Example: ALLOWED_ORIGINS=chrome-extension://<id>
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "")
 ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+# Remove wildcard if present, unless explicitly needed for dev.
+if "*" in ALLOWED_ORIGINS and os.getenv("ENVIRONMENT") != "development":
+    logger.warning("Wildcard CORS detected. This is unsafe for production. Please configure ALLOWED_ORIGINS.")
+    ALLOWED_ORIGINS = [o for o in ALLOWED_ORIGINS if o != "*"]
 
 _START_TIME = time.time()
+
+# ==================================================
+# RATE LIMITER INIT
+# ==================================================
+limiter = Limiter(key_func=get_remote_address)
 
 # ==================================================
 # FASTAPI INIT
@@ -50,13 +63,24 @@ app = FastAPI(
     description="Phishing & malicious URL detection powered by ML + OSINT + Heuristics.",
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS else ["https://webshield-api.online"],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 # ==================================================
 # SCHEMAS
@@ -82,6 +106,15 @@ class PredictResponse(BaseModel):
 
 class ReportRequest(BaseModel):
     url: str = Field(..., max_length=2048)
+
+
+class FeedbackRequest(BaseModel):
+    url: str = Field(..., max_length=2048)
+    page_title: str = Field("", max_length=2048)
+    message: str = Field(..., max_length=500)
+    feedback_type: str = Field(..., max_length=100)
+    timestamp: str
+    extension_version: str
 
 
 # ==================================================
@@ -117,7 +150,8 @@ def model_info():
 
 
 @app.post("/predict", response_model=PredictResponse, tags=["Predict"])
-def predict_endpoint(req: PredictRequest):
+@limiter.limit("60/minute")
+def predict_endpoint(req: PredictRequest, request: Request):
     """
     Analyse a URL and return a structured risk assessment.
 
@@ -127,10 +161,11 @@ def predict_endpoint(req: PredictRequest):
     try:
         url_stripped = req.url.strip()
         url_lower = url_stripped.lower()
+        safe_url_log = sanitize_url_for_logging(url_stripped)
 
         # Fast-pass: non-http(s) schemes (browser internal pages, etc.)
         if not url_lower.startswith(("http://", "https://")):
-            logger.debug("[/predict] Non-http URL fast-passed as SAFE: %s", url_stripped[:80])
+            logger.debug("[/predict] Non-http URL fast-passed as SAFE: %s", safe_url_log)
             return {
                 "url": url_stripped,
                 "decision": "SAFE",
@@ -153,7 +188,7 @@ def predict_endpoint(req: PredictRequest):
         try:
             validated_url = validate_url(url_stripped)
         except URLValidationError as ve:
-            logger.warning("[/predict] URL validation failed: %s | url=%s", ve, url_stripped[:80])
+            logger.warning("[/predict] URL validation failed: %s | url=%s", ve, safe_url_log)
             raise HTTPException(status_code=422, detail=str(ve))
 
         result = predict_url(validated_url)
@@ -173,7 +208,8 @@ def predict_endpoint(req: PredictRequest):
 
 
 @app.post("/report-false-positive", tags=["Feedback"])
-def report_false_positive(req: ReportRequest):
+@limiter.limit("20/minute")
+def report_false_positive(req: ReportRequest, request: Request):
     """
     Accept a false-positive report from the extension.
     The URL is normalised to root domain, enriched with live OSINT data,
@@ -226,3 +262,50 @@ def report_false_positive(req: ReportRequest):
     except Exception as e:
         logger.error("[/report-false-positive] Error: %s(%s)", type(e).__name__, e, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to record report.")
+
+
+@app.post("/feedback", tags=["Feedback"])
+@limiter.limit("10/minute")
+def submit_feedback(req: FeedbackRequest, request: Request):
+    """
+    Accept user feedback and save to data/feedbacks.csv.
+    """
+    try:
+        # Light URL validation for feedback endpoints
+        try:
+            validated_url = validate_url(req.url.strip())
+        except URLValidationError as ve:
+            raise HTTPException(status_code=422, detail=str(ve))
+            
+        safe_url_log = sanitize_url_for_logging(validated_url)
+
+        os.makedirs("data", exist_ok=True)
+        file_path = "data/feedbacks.csv"
+        file_exists = os.path.isfile(file_path)
+
+        fieldnames = [
+            "timestamp", "url", "page_title", "feedback_type", "message", "extension_version"
+        ]
+
+        new_row = {
+            "timestamp": req.timestamp,
+            "url": validated_url,
+            "page_title": req.page_title,
+            "feedback_type": req.feedback_type,
+            "message": req.message,
+            "extension_version": req.extension_version,
+        }
+
+        with open(file_path, mode="a", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(new_row)
+
+        logger.info("[/feedback] Received feedback of type %s for url: %s", req.feedback_type, safe_url_log)
+        return {"status": "success", "message": "Feedback recorded successfully."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("[/feedback] Error: %s(%s)", type(e).__name__, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to record feedback.")

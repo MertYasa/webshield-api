@@ -59,3 +59,23 @@ def validate_url(url: str) -> str:
         raise URLValidationError("URL does not contain a valid host.")
 
     return url
+
+
+def sanitize_url_for_logging(url: str) -> str:
+    """
+    Mask query parameters in a URL to prevent logging PII.
+    E.g. https://example.com/path?token=123 -> https://example.com/path?***
+    """
+    if not isinstance(url, str):
+        return ""
+    try:
+        parsed = urlparse(url)
+        if parsed.query:
+            # Reconstruct URL without query string, but indicate it was there
+            safe_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?***"
+            if parsed.fragment:
+                safe_url += f"#{parsed.fragment}"
+            return safe_url
+        return url
+    except Exception:
+        return "<invalid-url>"

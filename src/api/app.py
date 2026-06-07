@@ -38,12 +38,15 @@ API_VERSION = "1.3.0"
 MODEL_VERSION = "webshield_ultimate_v2"
 HEURISTIC_VERSION = "heuristic_engine_v1"
 
+ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
+IS_DEVELOPMENT = ENVIRONMENT == "development"
+
 # CORS: restrict in production via environment variable.
 # Example: ALLOWED_ORIGINS=chrome-extension://<id>
 _raw_origins = os.getenv("ALLOWED_ORIGINS", "")
 ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 # Remove wildcard if present, unless explicitly needed for dev.
-if "*" in ALLOWED_ORIGINS and os.getenv("ENVIRONMENT") != "development":
+if "*" in ALLOWED_ORIGINS and not IS_DEVELOPMENT:
     logger.warning("Wildcard CORS detected. This is unsafe for production. Please configure ALLOWED_ORIGINS.")
     ALLOWED_ORIGINS = [o for o in ALLOWED_ORIGINS if o != "*"]
 
@@ -61,6 +64,9 @@ app = FastAPI(
     title="WebShield API",
     version=API_VERSION,
     description="Phishing & malicious URL detection powered by ML + OSINT + Heuristics.",
+    docs_url="/docs" if IS_DEVELOPMENT else None,
+    redoc_url="/redoc" if IS_DEVELOPMENT else None,
+    openapi_url="/openapi.json" if IS_DEVELOPMENT else None,
 )
 
 app.state.limiter = limiter

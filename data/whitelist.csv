@@ -1,5 +1,6 @@
-domain
 0xrpc.io
+10.101.0.1
+127.0.0.1
 163.com
 1drv.com
 1rx.io
@@ -267,6 +268,7 @@ disqus.com
 dns.google
 docker.com
 docker.io
+domain
 doppiocdn.com
 dotomi.com
 doubleclick.net
@@ -505,6 +507,7 @@ live.net
 livechatinc.com
 llamarpc.com
 ln-msedge.net
+localhost
 loopme.me
 ltwebstatic.com
 mail.ru
@@ -593,6 +596,7 @@ nintendo.net
 nist.gov
 no-ip.com
 norton.com
+notebooklm.google
 notion.so
 nr-data.net
 ns1p.net
@@ -999,7 +1003,3 @@ zoom.com
 zoom.us
 zpath.net
 zscaler.net
-notebooklm.google
-10.101.0.1
-localhost
-127.0.0.1

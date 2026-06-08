@@ -12,9 +12,12 @@ def get_registered_domain(url: str):
 
         ext = _extractor(url)
 
-        if not ext.domain or not ext.suffix:
+        if not ext.domain:
             return None
 
+        if not ext.suffix:
+            return ext.domain
+            
         return f"{ext.domain}.{ext.suffix}"
     except Exception:
         return None

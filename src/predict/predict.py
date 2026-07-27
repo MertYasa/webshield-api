@@ -120,8 +120,8 @@ def predict_url(url: str) -> dict:
             "decision": "SAFE",
             "confidence": "HIGH",
             "osint_data": {
-                "has_mx_record": 1, "has_spf_record": 1,
-                "dns_a_record_count": 1, "txt_record_count": 1, "mx_record_count": 1,
+                "has_mx_record": None, "has_spf_record": None,
+                "dns_a_record_count": None, "txt_record_count": None, "mx_record_count": None,
             },
             "reasons": ["global_whitelist_trusted"],
         }
